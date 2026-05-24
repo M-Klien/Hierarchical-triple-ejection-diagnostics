@@ -1,0 +1,20 @@
+cff-version: 1.2.0
+title: "Time-dependent topology-inspired diagnostics for ejection classification in hierarchical triple systems"
+message: "If you use this repository, please cite the associated manuscript and this software archive."
+type: software
+authors:
+  - family-names: "Klien"
+    given-names: "M."
+    orcid: "https://orcid.org/0009-0004-5921-7391"
+version: "0.1.0"
+date-released: 2026-05-23
+license: "MIT"
+repository-code: "https://github.com/M.Klien/hierarchical-triple-ejection-diagnostics"
+keywords:
+  - hierarchical triples
+  - three-body problem
+  - REBOUND
+  - IAS15
+  - machine learning
+  - ejection classification
+  - celestial mechanics
