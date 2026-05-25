@@ -1,0 +1,62 @@
+{
+  "n_systems_requested": 10000,
+  "n_total_used": 9999,
+  "n_train": 6999,
+  "n_validation": 3000,
+  "outcome_counts": {
+    "stable": 7410,
+    "ejected": 2589,
+    "numerical_error": 1
+  },
+  "best_Hmin_threshold": {
+    "threshold": 2.575,
+    "accuracy": 0.8605860586058606,
+    "precision_eject": 0.7392871445734882,
+    "recall_eject": 0.7130166087292391,
+    "f1_eject": 0.7259142744789618,
+    "specificity_stable": 0.9121457489878543,
+    "tn": 6759,
+    "fp": 651,
+    "fn": 743,
+    "tp": 1846
+  },
+  "validation": {
+    "accuracy": 0.9943333333333333,
+    "precision_eject": 0.9810126582278481,
+    "recall_eject": 0.9974259974259975,
+    "f1_eject": 0.9891512444160817,
+    "specificity_stable": 0.9932523616734144,
+    "tn": 2208,
+    "fp": 15,
+    "fn": 2,
+    "tp": 775,
+    "auc": 0.9997383155277892
+  },
+  "train": {
+    "accuracy": 0.9988569795685098,
+    "precision_eject": 0.9956043956043956,
+    "recall_eject": 1.0,
+    "f1_eject": 0.9977973568281938,
+    "specificity_stable": 0.998457682668209,
+    "tn": 5179,
+    "fp": 8,
+    "fn": 0,
+    "tp": 1812,
+    "auc": 0.9999989360393682
+  },
+  "baseline_H_min": {
+    "threshold_fit_on_train": 2.575,
+    "validation": {
+      "accuracy": 0.854,
+      "precision_eject": 0.7281292059219381,
+      "recall_eject": 0.6962676962676962,
+      "f1_eject": 0.7118421052631579,
+      "specificity_stable": 0.909131803868646,
+      "tn": 2021,
+      "fp": 202,
+      "fn": 236,
+      "tp": 541
+    }
+  },
+  "runtime_minutes": 107.51647529204686
+}
