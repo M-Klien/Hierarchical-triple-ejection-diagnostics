@@ -1,0 +1,1221 @@
+\documentclass[12pt,a4paper]{article}
+
+% ============================================================
+% PACKAGES
+% ============================================================
+
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{cleveref}
+\usepackage{natbib}
+\usepackage{xcolor}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{float}
+\usepackage{microtype}
+\usepackage{setspace}
+\usepackage{titlesec}
+\usepackage{abstract}
+\usepackage{siunitx}
+\usepackage{array}
+\usepackage{enumitem}
+
+\graphicspath{{./}{figures/}}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue!70!black,
+    citecolor=blue!70!black,
+    urlcolor=blue!70!black,
+    filecolor=blue!70!black
+}
+
+\captionsetup{labelfont=bf,textfont=normalfont}
+\onehalfspacing
+
+% ============================================================
+% THEOREM ENVIRONMENTS
+% ============================================================
+
+\newtheorem{definition}{Definition}
+\newtheorem{proposition}{Proposition}
+
+% ============================================================
+% CUSTOM COMMANDS
+% ============================================================
+
+\newcommand{\Hcrit}{H_{\rm crit}}
+\newcommand{\Hmin}{H_{\min}}
+\newcommand{\Eij}{E_{ij}}
+\newcommand{\Ores}{\Omega_{\rm res}}
+\newcommand{\Rin}{\mathbf{R}_{\rm in}}
+\newcommand{\Msun}{M_\odot}
+\newcommand{\Tout}{T_{\rm out}}
+\newcommand{\Tin}{T_{\rm in}}
+\newcommand{\Pej}{P_{\rm ej}}
+
+% Clickable high-resolution figure helper.
+% If your PDF reader supports it, clicking the image opens the original file.
+% If this causes compile problems, replace \zoomfigure{file}{options}
+% with \includegraphics[options]{file}.
+\newcommand{\zoomfigure}[2]{%
+  \href{run:#1}{\includegraphics[#2]{#1}}%
+}
+
+% ============================================================
+% TITLE BLOCK
+% ============================================================
+
+\title{%
+  \textbf{Time-dependent topology-inspired diagnostics for ejection classification in hierarchical triple systems}\\[6pt]
+  \large IAS15 simulations, baseline comparisons, and robustness tests
+}
+
+\author{%
+  M.~Klien\\
+  \small Independent Researcher\\
+  \small ORCID: 0009-0004-5921-7391
+}
+
+\date{May 2026}
+
+% ============================================================
+\begin{document}
+% ============================================================
+
+\maketitle
+
+\begin{abstract}
+Predicting terminal outcomes in hierarchical triple systems is difficult because nearby trajectories can diverge rapidly under chaotic three-body dynamics, and because short-term stability need not imply long-term survival. We investigate whether terminal ejection can be classified from time-dependent diagnostics of hierarchy loss, pairwise energy exchange, and angular-momentum reorganization. We define a mass-weighted hierarchy metric \(H(t)\), hierarchy derivatives, pairwise two-body energy-exchange amplitudes, a normalized angular-momentum misalignment diagnostic, spectral features, and a tanh-sigmoid contraction filter. We generate 10,000 hierarchical triples using the REBOUND IAS15 integrator and integrate each system for \(100\) outer orbital periods or until termination. One system is rejected by the pre-specified energy-error tolerance, leaving 9,999 usable systems. On a fixed stratified 6,999/3,000 train-validation split, the full time-dependent diagnostic model achieves 99.43\% validation accuracy, AUC-ROC \(=0.99974\), ejection precision \(=98.10\%\), ejection recall \(=99.74\%\), F1 \(=0.989\), and stable specificity \(=99.33\%\), with only two missed ejections in the validation set. Repeated 70/30 splits give a mean accuracy of \(99.09\pm0.18\%\) and mean AUC-ROC \(=0.99961\pm0.00012\). A one-dimensional \(\Hmin\)-threshold baseline reaches only \(85.30\pm0.60\%\) accuracy over repeated splits, while initial-condition-only machine-learning baselines reach about 94.6--94.8\% accuracy. Ablation tests show that hierarchy features provide the primary separability, while derivative, energy-exchange, seam-tension, and signal-processing features provide complementary improvements. The method does not solve the three-body problem or provide a causal early-warning model by itself: the headline result is a full-trajectory outcome-classification result within the sampled quasi-hierarchical regime. The results nevertheless show that terminal ejection is strongly separable in a physically interpretable, time-dependent diagnostic feature space.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+% ============================================================
+\section{Introduction}
+\label{sec:introduction}
+% ============================================================
+
+Hierarchical triple systems occur in a wide range of astrophysical settings, including multiple-star systems, planetary systems, compact-object triples, and young stellar environments. Their long-term evolution is shaped by the interaction between nearly Keplerian inner and outer orbits, secular angular-momentum exchange, resonant encounters, and chaotic three-body dynamics. Although a strongly hierarchical configuration may remain stable over many secular cycles, systems near the stability boundary can eventually undergo close encounter, collision, exchange, or ejection.
+
+The non-integrability of the three-body problem has been known since the work of \citet{Poincare1890}. Modern approaches to hierarchical triples typically proceed through either secular perturbation theory, analytic stability criteria, direct numerical integration, or data-driven classification. The quadrupole-level Kozai--Lidov mechanism \citep{Kozai1962,Lidov1962} and octupole-order eccentric Kozai--Lidov dynamics \citep{Ford2000,Lithwick2011,Naoz2011,Naoz2012,Liu2015,Petrovich2015} explain large-amplitude eccentricity and inclination oscillations in hierarchical systems. Stability criteria such as that of \citet{Mardling2001} provide useful analytic boundaries, while recent large numerical and machine-learning studies have mapped more detailed stability surfaces across broad populations of triples.
+
+A central distinction in this paper is between trajectory prediction and outcome classification. Individual trajectories in the chaotic regime can remain Lyapunov-sensitive even when the eventual terminal outcome is statistically classifiable. We do not attempt to predict the exact phase-space trajectory of a three-body system over arbitrary time. Instead, we ask whether terminal ejection can be classified from time-dependent diagnostics of hierarchy loss, pairwise energy exchange, and angular-momentum misalignment.
+
+This approach is motivated by the structure of hierarchical triples. At short times, the system can often be approximated as two coupled Keplerian orbits: an inner binary and an outer tertiary orbiting the inner-binary centre of mass. Ejection requires a breakdown of this clean decomposition. We therefore construct diagnostics that monitor the loss of hierarchy rather than the detailed trajectory itself. The central quantity is the dimensionless hierarchy metric \(H(t)\), defined as the distance from the tertiary to the inner-binary centre of mass divided by the instantaneous inner-binary separation. When \(H(t)\) becomes small, the tertiary enters the spatial scale of the inner binary and the system approaches a regime in which the two-orbit decomposition ceases to be clean.
+
+\Cref{fig:chaos_vs_hierarchy} illustrates the motivating distinction. Nearby trajectories may separate rapidly in configuration space, while the hierarchy metric can still identify the approach to a low-hierarchy regime. This figure is illustrative; the validation of the method is statistical and is based on the 9,999-system IAS15 suite described below.
+
+\begin{figure}[H]
+    \centering
+    \zoomfigure{Plot_1_Chaos_vs_Determinism.png}{width=\linewidth}
+    \caption{
+    Schematic distinction between trajectory divergence and hierarchy-level diagnostic evolution. Two nearby trajectories may diverge rapidly in configuration space, while the hierarchy metric \(H(t)\) can still identify the approach to a low-hierarchy regime associated with terminal ejection. The figure motivates the distinction between trajectory prediction and outcome classification. The quantitative validation is given in \Cref{sec:full_trajectory_results}.
+    }
+    \label{fig:chaos_vs_hierarchy}
+\end{figure}
+
+The contribution of this paper is not a replacement for existing stability criteria. Rather, we introduce and test a time-dependent diagnostic representation for triple-system outcome classification. The main contributions are:
+
+\begin{enumerate}[label=(\roman*)]
+    \item we define a compact set of topology-inspired diagnostics for hierarchical triples: a mass-weighted hierarchy metric \(H(t)\), hierarchy derivatives, pairwise energy-exchange amplitudes, normalized angular-momentum seam tension, spectral features, and a tanh-sigmoid contraction filter;
+    \item we generate a controlled suite of 10,000 hierarchical triples using REBOUND IAS15, of which 9,999 pass the energy-error criterion;
+    \item we evaluate a full diagnostic feature model on a fixed 6,999/3,000 train-validation split and on repeated randomized splits;
+    \item we compare against a one-dimensional \(\Hmin\)-threshold baseline and against initial-condition-only machine-learning baselines;
+    \item we perform feature ablations to determine which diagnostic families carry the classification signal.
+\end{enumerate}
+
+The language ``topology-inspired'' is used in a diagnostic sense. The quantities introduced below describe changes in the separability and connectivity of the hierarchical decomposition. They are not claimed to provide a closed-form solution of the three-body problem, nor do they remove trajectory-level chaos. The claim tested here is narrower and directly numerical: terminal ejection outcomes are strongly separable in the proposed diagnostic feature space within the sampled quasi-hierarchical regime.
+
+% ============================================================
+\section{Related work}
+\label{sec:related_work}
+% ============================================================
+
+The present study lies at the intersection of analytic stability criteria, numerical studies of triple disruption, and machine-learning classification of hierarchical triple stability. We summarize the relevant context because the main result of this paper should be interpreted relative to existing stability-boundary and data-driven work, rather than as a standalone claim about the three-body problem.
+
+% ------------------------------------------------------------
+\subsection{Analytic and empirical stability criteria}
+\label{sec:related_analytic}
+% ------------------------------------------------------------
+
+Analytic criteria for hierarchical triple stability provide compact approximations to a high-dimensional stability boundary. The criterion of \citet{Mardling2001} remains a standard reference and is widely used in population-synthesis and few-body applications. Hill-type criteria and secular arguments provide complementary interpretations, especially when the inner and outer orbits remain well separated.
+
+Recent empirical work has emphasized that the stability boundary is not a sharp universal curve. \citet{Tory2022} mapped the stability boundary of hierarchical triples across mass ratio, inclination, eccentricity, and orbital phase, showing that the boundary has finite width and nontrivial dependence on the system architecture. This point is central for the present paper: the reference scale \(\Hcrit\simeq2.5\) is not treated as an exact universal separatrix. It is an empirical low-hierarchy scale whose usefulness is tested within the stated sampling domain.
+
+% ------------------------------------------------------------
+\subsection{Numerical studies of triple disruption}
+\label{sec:related_numerical}
+% ------------------------------------------------------------
+
+Direct numerical integrations show that stability depends on the timescale over which it is defined. \citet{Hayashi2022} studied disruption timescales of hierarchical triples using long direct integrations and emphasized that short-term stability boundaries do not fully determine long-term disruption. \citet{Hayashi2023} further clarified the distinction between Lagrange stability, associated with escape or disruption, and Lyapunov-like stability, associated with local chaotic divergence. They found strong dependence on mutual inclination: inclined triples can be destabilized by von Zeipel--Kozai--Lidov oscillations, while highly retrograde triples can be significantly more stable.
+
+These results motivate two cautions in the present work. First, the integration window \(100\Tout\) defines a finite-time outcome label, not an asymptotic stability theorem. Second, the fiducial inclination range \(0^\circ\leq i_{\rm mut}\leq60^\circ\) does not cover the full inclination dependence of triple stability. The limitations section returns to these points explicitly.
+
+% ------------------------------------------------------------
+\subsection{Machine-learning approaches to triple stability}
+\label{sec:related_ml}
+% ------------------------------------------------------------
+
+Machine-learning classifiers have already been applied to hierarchical triple stability. \citet{Vynatheya2022} generated a dataset of \(10^6\) hierarchical triples and trained machine-learning models to classify stability from initial orbital parameters, obtaining accuracies of order 95\%. \citet{LalandeTrani2022} used \(5\times10^6\) few-body simulations and convolutional neural networks applied to time series of orbital elements, achieving AUC values above 95\% and demonstrating that short time-series segments can contain useful stability information.
+
+The present paper differs from these studies in two ways. First, it focuses on a compact set of physically interpretable diagnostic time series: hierarchy loss, pairwise energy exchange, and angular-momentum seam tension. Second, it compares this time-dependent diagnostic representation against both a one-dimensional hierarchy-threshold baseline and initial-condition-only machine-learning baselines on the same dataset. Thus, the contribution is not the claim that machine learning can classify triple stability. Rather, it is the construction and evaluation of a time-dependent diagnostic feature space for terminal ejection classification.
+
+% ------------------------------------------------------------
+\subsection{Contribution of this work}
+\label{sec:related_contribution}
+% ------------------------------------------------------------
+
+The present work should be read as a finite-time, distribution-specific classification study. Within the sampled quasi-hierarchical regime, the full diagnostic feature model substantially outperforms a simple \(\Hmin\)-threshold baseline and improves on initial-condition-only baselines. The result does not imply a universal stability criterion, nor does it replace long-baseline studies of disruption timescales. It shows that time-dependent hierarchy, energy-exchange, and seam-tension diagnostics provide a compact and physically interpretable representation in which terminal ejection is highly separable.
+
+% ============================================================
+\section{Topology-inspired diagnostic framework}
+\label{sec:diagnostics}
+% ============================================================
+
+We now define the diagnostic quantities used throughout the paper. The goal is not to construct new conserved quantities for the full three-body problem, but to extract low-dimensional time series that track the breakdown of a clean hierarchical decomposition.
+
+% ------------------------------------------------------------
+\subsection{Hierarchy metric}
+\label{sec:H_metric}
+% ------------------------------------------------------------
+
+Consider three bodies with masses \(m_0,m_1,m_2\), positions \(\mathbf r_0,\mathbf r_1,\mathbf r_2\), and velocities \(\mathbf v_0,\mathbf v_1,\mathbf v_2\). Bodies 0 and 1 define the inner binary, while body 2 is the tertiary. The mass-weighted centre of mass of the inner binary is
+
+\begin{equation}
+    \Rin =
+    \frac{m_0\mathbf r_0 + m_1\mathbf r_1}{m_0+m_1}.
+    \label{eq:inner_com}
+\end{equation}
+
+The hierarchy metric is then
+
+\begin{equation}
+    H(t) =
+    \frac{|\mathbf r_2-\Rin|}
+         {|\mathbf r_1-\mathbf r_0|}.
+    \label{eq:H_metric}
+\end{equation}
+
+Large values of \(H(t)\) correspond to a well-separated hierarchy. Small values indicate that the tertiary has entered the spatial scale of the inner binary. In this work \(H(t)\) is used as a dimensionless measure of hierarchy loss.
+
+The reference scale \(\Hcrit\simeq2.5\) is treated as an empirical hierarchy-collapse scale, not as an assumed universal constant. The one-dimensional threshold baseline introduced in \Cref{sec:Hmin_baseline} gives \(H_{\rm th}=2.575\) on the fiducial training split, close to the adopted reference value.
+
+% ------------------------------------------------------------
+\subsection{Pairwise energy-exchange diagnostics}
+\label{sec:pairwise_energy}
+% ------------------------------------------------------------
+
+For each pair of bodies \((i,j)\), we define the diagnostic two-body energy
+
+\begin{equation}
+    \Eij(t)
+    =
+    \frac{1}{2}\mu_{ij}|\mathbf v_i-\mathbf v_j|^2
+    -
+    \frac{Gm_im_j}{|\mathbf r_i-\mathbf r_j|},
+    \label{eq:pair_energy}
+\end{equation}
+
+where
+
+\begin{equation}
+    \mu_{ij} = \frac{m_im_j}{m_i+m_j}
+\end{equation}
+
+is the reduced mass of the pair. These \(\Eij\) are not separately conserved Hamiltonians of the full three-body system. They are diagnostic pair energies that measure how strongly the system departs from a clean two-orbit decomposition.
+
+We define the pairwise energy-exchange amplitude
+
+\begin{equation}
+    \Lambda_E =
+    \sum_{(i,j)\in\{(0,1),(0,2),(1,2)\}}
+    {\rm std}\left[E_{ij}(t)\right],
+    \label{eq:energy_exchange}
+\end{equation}
+
+where the standard deviation is computed over the sampled trajectory. In the feature model, both the individual standard deviations and normalized combinations are used. Large values of \(\Lambda_E\) indicate strong exchange among the pair channels and are expected near close encounters or ejection-producing episodes.
+
+% ------------------------------------------------------------
+\subsection{Angular-momentum seam tension}
+\label{sec:omega_res}
+% ------------------------------------------------------------
+
+The pairwise angular-momentum vector is
+
+\begin{equation}
+    \mathbf L_{ij}
+    =
+    \mu_{ij}
+    \left[
+    (\mathbf r_j-\mathbf r_i)
+    \times
+    (\mathbf v_j-\mathbf v_i)
+    \right].
+    \label{eq:pair_L}
+\end{equation}
+
+To measure the degree to which the three pairwise channels cease to define a mutually consistent hierarchical decomposition, we use the normalized angular-momentum misalignment
+
+\begin{equation}
+    \Ores =
+    \frac{
+    \|\mathbf L_{01}-\mathbf L_{02}\|
+    +
+    \|\mathbf L_{02}-\mathbf L_{12}\|
+    +
+    \|\mathbf L_{12}-\mathbf L_{01}\|
+    }
+    {
+    \|\mathbf L_{01}\|+\|\mathbf L_{02}\|+\|\mathbf L_{12}\|+\epsilon
+    },
+    \label{eq:omega_res}
+\end{equation}
+
+where \(\epsilon\) is a small numerical regularization constant. The normalization makes \(\Ores\) dimensionless and reduces trivial scaling with mass, separation, and velocity. We refer to this quantity as a seam-tension diagnostic: it tracks angular-momentum misalignment across the three pairwise orbital channels.
+
+% ------------------------------------------------------------
+\subsection{Derivative and signal-processing features}
+\label{sec:derivative_signal_features}
+% ------------------------------------------------------------
+
+The temporal derivatives of the hierarchy metric are computed from the sampled \(H(t)\) series. For nearly uniform sampling, the first and second derivatives may be written schematically as
+
+\begin{align}
+    \dot H(t_i)
+    &\simeq
+    \frac{H(t_{i+1})-H(t_{i-1})}{t_{i+1}-t_{i-1}},
+    \label{eq:Hdot}
+    \\
+    \ddot H(t_i)
+    &\simeq
+    \frac{\dot H(t_{i+1})-\dot H(t_{i-1})}{t_{i+1}-t_{i-1}}.
+    \label{eq:Hddot}
+\end{align}
+
+In the machine-learning feature set, we use summary statistics of \(\dot H\), \(\ddot H\), the global slope of \(H(t)\), and the fitted curvature of \(H(t)\). These quantities capture not only how small the hierarchy becomes, but also how rapidly and coherently the hierarchy changes.
+
+To compress rapid hierarchy changes into a dimensionless diagnostic, we use a tanh-sigmoid filter applied to \(|\dot H|\):
+
+\begin{equation}
+    \Psi(|\dot H|)
+    =
+    \frac{1}{2}
+    \left[
+    1+
+    \tanh
+    \left(
+    \kappa
+    \left[
+    \frac{|\dot H|}{\dot H_c}-1
+    \right]
+    \right)
+    \right],
+    \label{eq:psi_filter}
+\end{equation}
+
+with
+
+\begin{equation}
+    \dot H_c = \frac{H_0}{\Tout},
+    \label{eq:Hdotc}
+\end{equation}
+
+where \(H_0=H(t=0)\). The filter maps slow secular hierarchy evolution to values near zero and rapid hierarchy deformation to values near unity. In the fiducial run analysed here, we use \(\kappa=4\).
+
+We also include spectral entropy of \(H(t)\) and \(\Ores(t)\), together with an autocorrelation statistic for \(H(t)\). These features are compact summaries of regularity, intermittency, and high-frequency structure. They are not interpreted as separate physical mechanisms, but they improve the classifier's ability to distinguish regular hierarchy oscillations from ejection-producing evolution.
+
+% ------------------------------------------------------------
+\subsection{Terminology and scope}
+\label{sec:terminology_scope}
+% ------------------------------------------------------------
+
+The terms ``topology-inspired'' and ``seam tension'' are used operationally. They refer to diagnostics of how the hierarchical decomposition into inner and outer orbital channels becomes less separable during strong three-body evolution. We do not claim to prove a topological classification theorem for the full phase space. The framework is a feature-construction method guided by the geometry of hierarchical triples.
+
+\Cref{fig:phase_space_decomposition_intro} illustrates the motivation. The full configuration-space trajectory can appear complex, while projections onto pairwise diagnostic channels reveal structured changes in separation, energy exchange, and angular-momentum misalignment. These projections are used as statistical features rather than exact invariant submanifolds.
+
+\begin{figure}[H]
+    \centering
+    \zoomfigure{phase_space_decomposition_marginal.png}{width=\linewidth}
+    \caption{
+    Representative phase-space decomposition of a marginal hierarchical triple. The full configuration-space trajectory can be difficult to interpret directly, while pairwise diagnostic projections expose structured changes in separation, pair energy, and angular-momentum misalignment. In this work these quantities are used as supervised features for terminal ejection classification, not as exact invariant submanifolds.
+    }
+    \label{fig:phase_space_decomposition_intro}
+\end{figure}
+
+A second schematic view is shown in \Cref{fig:kam_breakdown_intro}. The figure should be read as a qualitative visualization of hierarchy loss, not as a mathematical proof of KAM-torus destruction. It motivates the use of hierarchy deformation and pairwise channel diagnostics.
+
+\begin{figure}[H]
+    \centering
+    \zoomfigure{kam_tori_breakdown.png}{width=\linewidth}
+    \caption{
+    Schematic visualization of hierarchy loss. In the well-separated regime, the system can be approximated as coupled inner and outer orbital channels. Near the critical hierarchy scale, the clean two-orbit decomposition becomes distorted. In the low-hierarchy regime, close three-body interactions dominate the subsequent evolution. The statistical validation in later sections tests whether these diagnostic changes separate ejection and non-ejection outcomes.
+    }
+    \label{fig:kam_breakdown_intro}
+\end{figure}
+
+% ============================================================
+\section{Numerical experiment}
+\label{sec:numerical_experiment}
+% ============================================================
+
+This section describes the simulation suite used for the main validation. All headline results in this paper refer to this dataset unless explicitly stated otherwise.
+
+% ------------------------------------------------------------
+\subsection{Initial-condition distribution}
+\label{sec:ic_distribution}
+% ------------------------------------------------------------
+
+We generate a fiducial sample of 10,000 hierarchical triples. The inner orbit is defined by bodies 0 and 1, while body 2 is placed on an outer orbit about the centre of mass of the inner pair. Initial conditions are sampled in Jacobi orbital elements using REBOUND's orbital-element initialization, avoiding hand-coded eccentric-orbit velocity formulae.
+
+The sampling domain is given in \Cref{tab:parameter_space}. This domain is intended to represent a controlled quasi-hierarchical regime rather than the full astrophysical parameter space of all triples.
+
+\begin{table}[H]
+\centering
+\caption{Initial-condition distribution for the fiducial 10,000-system simulation suite. Masses are in solar masses and semi-major axes are in AU. All angular elements \((\omega,\Omega,M)\) are sampled uniformly from \([0,2\pi]\).}
+\label{tab:parameter_space}
+\begin{tabular}{lcc}
+\toprule
+Parameter & Range & Distribution \\
+\midrule
+Inner primary mass \(m_0\) & \(0.5-2.0\,\Msun\) & Uniform \\
+Inner secondary mass \(m_1\) & \(0.5-2.0\,\Msun\) & Uniform \\
+Tertiary mass \(m_2\) & \(0.5-2.0\,\Msun\) & Uniform \\
+Inner semi-major axis \(a_{\rm in}\) & \(0.8-1.2\) AU & Uniform \\
+Outer semi-major axis \(a_{\rm out}\) & \(3.0-12.0\) AU & Uniform \\
+Inner eccentricity \(e_{\rm in}\) & \(0.0-0.4\) & Uniform \\
+Outer eccentricity \(e_{\rm out}\) & \(0.0-0.7\) & Uniform \\
+Mutual inclination \(i_{\rm mut}\) & \(0^\circ-60^\circ\) & Uniform \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The corresponding ratio \(a_{\rm out}/a_{\rm in}\) spans approximately \(2.5-15\), depending on the sampled inner semi-major axis. The upper inclination limit of \(60^\circ\) means that the present dataset focuses on prograde and moderately inclined triples. Extension to retrograde systems, high mutual inclinations, broader mass ratios, and more eccentric outer orbits is discussed in \Cref{sec:limitations}.
+
+% ------------------------------------------------------------
+\subsection{IAS15 integration protocol}
+\label{sec:integration_protocol}
+% ------------------------------------------------------------
+
+All systems are integrated using REBOUND's IAS15 integrator \citep{Rein2012,Rein2015}, a 15th-order adaptive Gauss--Radau scheme suitable for high-accuracy gravitational dynamics. Units are yr, AU, and \(\Msun\). Each system is integrated for
+
+\begin{equation}
+    t_{\max}=100\,\Tout,
+\end{equation}
+
+where \(\Tout\) is the initial outer orbital period, unless a termination criterion is reached earlier.
+
+We use three termination criteria.
+
+\begin{enumerate}[label=(\roman*)]
+    \item \textbf{Ejection.} A system is labelled as ejected if the distance between the tertiary and the inner-binary centre of mass exceeds \(5a_{\rm out}\).
+    \item \textbf{Collision flag.} A collision is flagged if any pairwise separation falls below \(0.01a_{\rm in}\). In the present binary classification experiment, collision outcomes are not treated as a separate supervised class.
+    \item \textbf{Numerical rejection.} A system is rejected if the relative energy error exceeds \(10^{-8}\).
+\end{enumerate}
+
+The relative energy error is
+
+\begin{equation}
+    \epsilon_E =
+    \left|
+    \frac{E(t)-E(0)}{E(0)}
+    \right|.
+    \label{eq:energy_error}
+\end{equation}
+
+For each accepted trajectory, \(N_{\rm sample}=160\) samples are stored. At each sample we compute \(H(t)\), the three pairwise diagnostic energies \(\Eij(t)\), and the normalized seam-tension diagnostic \(\Ores(t)\).
+
+% ------------------------------------------------------------
+\subsection{Outcome labels and numerical rejection}
+\label{sec:outcome_statistics}
+% ------------------------------------------------------------
+
+Of the 10,000 generated systems, one is rejected because it exceeds the numerical energy-error tolerance. The remaining 9,999 systems are used for supervised learning. The outcome counts are listed in \Cref{tab:outcome_counts}.
+
+\begin{table}[H]
+\centering
+\caption{Outcome counts for the 10,000 generated systems. The single numerical-error case is excluded before training and validation.}
+\label{tab:outcome_counts}
+\begin{tabular}{lcc}
+\toprule
+Outcome & Count & Fraction of generated sample \\
+\midrule
+Stable over \(100\Tout\) & 7,410 & 74.10\% \\
+Ejected & 2,589 & 25.89\% \\
+Numerical rejection & 1 & 0.01\% \\
+\midrule
+Usable systems & 9,999 & 99.99\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The supervised model in this paper is binary: stable over the integration window versus ejected. Future extensions should treat collisions, exchanges, and long-lived metastable states as separate outcome classes.
+
+% ------------------------------------------------------------
+\subsection{Train-validation split}
+\label{sec:train_val_split}
+% ------------------------------------------------------------
+
+After removing the one numerical-error case, the remaining 9,999 systems are divided into a stratified 70/30 train-validation split. This gives
+
+\begin{equation}
+    N_{\rm train}=6,999,
+    \qquad
+    N_{\rm val}=3,000.
+\end{equation}
+
+The split is stratified by outcome label and uses a fixed random seed for the headline validation run. The validation set is not used during model fitting. To assess sensitivity to the split, we also perform repeated 70/30 splits over ten additional random seeds; those results are reported in \Cref{sec:repeated_splits}.
+
+% ------------------------------------------------------------
+\subsection{Computational cost}
+\label{sec:computational_cost}
+% ------------------------------------------------------------
+
+The full 10,000-system run required 178.8 minutes on a Google Colab environment, corresponding to approximately \(1.04\) seconds per generated system, including integration, diagnostic extraction, and feature construction. The computational cost is dominated by the IAS15 integrations. Because each system is independent, the calculation is embarrassingly parallel over systems.
+
+At the measured serial rate, a \(10^6\)-system extension would require approximately 12 days on one comparable worker, a few hours on a 100-core cluster, or less than an hour on a larger supercomputing allocation, aside from I/O overhead. Such a million-system suite would be valuable for mapping the out-of-distribution behaviour of the diagnostic feature space and is discussed further in \Cref{sec:million_scaling}.
+
+
+% ============================================================
+\section{Models and baselines}
+\label{sec:models_baselines}
+% ============================================================
+
+The diagnostics described in \Cref{sec:diagnostics} are converted into fixed-length feature vectors for supervised classification. The classification target is binary: stable over the \(100\Tout\) integration window or ejected before termination. This section describes the full diagnostic feature model, the simpler baselines used for comparison, the feature ablation protocol, and the repeated-split robustness test.
+
+A methodological distinction is important. The primary results below use full-trajectory summary features computed from the sampled evolution up to ejection or to \(100\Tout\). These results establish finite-time outcome separability. They should not be interpreted as a causal real-time warning experiment. A causal early-warning model would require training and evaluating on truncated trajectory windows using only information available before the warning time; this is discussed in \Cref{sec:early_warning}.
+
+% ------------------------------------------------------------
+\subsection{Full diagnostic feature model}
+\label{sec:full_diagnostic_model}
+% ------------------------------------------------------------
+
+Each accepted trajectory is represented by a 48-dimensional feature vector. The features are computed from the sampled time series \(H(t)\), \(E_{ij}(t)\), and \(\Ores(t)\). They are grouped into hierarchy statistics, hierarchy derivatives, pairwise energy-exchange diagnostics, angular-momentum seam diagnostics, and signal-processing summaries. The feature families are listed in \Cref{tab:feature_families}.
+
+\begin{table}[H]
+\centering
+\caption{Feature families used by the full diagnostic classifier. The full model contains 48 features.}
+\label{tab:feature_families}
+\begin{tabular}{p{0.25\linewidth}p{0.65\linewidth}}
+\toprule
+Feature family & Representative features \\
+\midrule
+Hierarchy statistics &
+\(\Hmin\), \(H_{\max}\), \(\langle H\rangle\), \(\sigma_H\), \(H_{\rm final}\), \(H_{\rm range}\), fraction of samples with \(H<\Hcrit\), number of threshold crossings \\[3pt]
+
+Hierarchy derivatives &
+Global slope of \(H(t)\), fitted curvature of \(H(t)\), summary statistics of \(\dot H\), summary statistics of \(\ddot H\), maximum \(|\dot H|\), maximum \(|\ddot H|\) \\[3pt]
+
+Pairwise energy exchange &
+\({\rm std}(E_{01})\), \({\rm std}(E_{02})\), \({\rm std}(E_{12})\), total exchange amplitude \(\Lambda_E\), normalized exchange amplitude, slopes of \(E_{ij}(t)\) \\[3pt]
+
+Angular-momentum seam tension &
+Minimum, maximum, mean, standard deviation, final value, and slope of the normalized seam diagnostic \(\Ores(t)\) \\[3pt]
+
+Signal-processing summaries &
+Mean, maximum, standard deviation, and final value of \(\Psi(|\dot H|)\); spectral entropy of \(H(t)\) and \(\Ores(t)\); autocorrelation of \(H(t)\) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The headline classifier is a soft-voting ensemble consisting of a regularized logistic regression model, a random forest, and a gradient-boosted tree model. The logistic component provides a low-variance linear baseline within the ensemble, while the tree-based components capture nonlinear interactions between hierarchy, energy-exchange, and seam-tension features. The model returns a probability \(\Pej\) that a system belongs to the ejection class.
+
+The model is trained only on the 6,999-system training set described in \Cref{sec:train_val_split}. The fixed-split validation result in \Cref{sec:full_trajectory_results} is computed on the 3,000-system held-out validation set.
+
+% ------------------------------------------------------------
+\subsection{\texorpdfstring{\(\Hmin\)}{Hmin} threshold baseline}
+\label{sec:Hmin_baseline}
+% ------------------------------------------------------------
+
+To test whether the classification performance is driven solely by the minimum hierarchy ratio, we construct a one-dimensional baseline classifier,
+
+\begin{equation}
+    \hat y =
+    \begin{cases}
+    1, & \Hmin < H_{\rm th},\\
+    0, & \Hmin \geq H_{\rm th},
+    \end{cases}
+    \label{eq:Hmin_baseline}
+\end{equation}
+
+where \(\hat y=1\) denotes a predicted ejection. The threshold \(H_{\rm th}\) is selected by maximizing the ejection-class F1 score on the training set. For the fiducial split, the best threshold is
+
+\begin{equation}
+    H_{\rm th}=2.575,
+    \label{eq:best_h_threshold}
+\end{equation}
+
+close to the reference scale \(\Hcrit=2.5\). This threshold is useful as an empirical hierarchy-collapse scale, but \Cref{sec:baseline_comparison} and \Cref{sec:repeated_splits} show that it is not sufficient for high-accuracy classification.
+
+% ------------------------------------------------------------
+\subsection{Initial-condition-only baselines}
+\label{sec:initial_condition_baselines}
+% ------------------------------------------------------------
+
+Previous machine-learning studies of triple stability have shown that initial orbital elements contain substantial information about eventual stability. To compare with that class of methods, we train two initial-condition-only baselines using the same 70/30 split as the headline validation run.
+
+The initial-condition feature vector contains the sampled masses, inner and outer orbital elements, and simple derived ratios:
+
+\begin{equation}
+    \frac{m_2}{m_0+m_1},\qquad
+    \frac{a_{\rm out}}{a_{\rm in}},\qquad
+    \frac{a_{\rm out}(1-e_{\rm out})}{a_{\rm in}(1+e_{\rm in})},
+    \label{eq:initial_ratios}
+\end{equation}
+
+together with \(\sin i_{\rm mut}\) and \(\cos i_{\rm mut}\). We train both a regularized logistic classifier and a tree-based classifier on these initial-condition features. These baselines measure how much improvement is obtained by using time-dependent diagnostic information rather than only the initial orbital architecture.
+
+% ------------------------------------------------------------
+\subsection{Feature ablation models}
+\label{sec:ablation_models}
+% ------------------------------------------------------------
+
+To determine which feature families carry the classification signal, we train additional classifiers on restricted feature subsets. The ablation groups are:
+
+\begin{itemize}
+    \item hierarchy statistics only;
+    \item hierarchy derivatives only;
+    \item energy-exchange features only;
+    \item seam-tension features only;
+    \item signal-processing features only;
+    \item hierarchy statistics plus hierarchy derivatives;
+    \item hierarchy plus signal-processing features;
+    \item energy plus seam-tension features;
+    \item all features except energy features;
+    \item all features except hierarchy features;
+    \item the full 48-feature set.
+\end{itemize}
+
+The ablation results are reported in \Cref{sec:ablation_results}. They show that hierarchy features provide the primary separability, while derivative, seam, energy, and signal-processing features provide complementary improvements.
+
+% ------------------------------------------------------------
+\subsection{Repeated-split protocol}
+\label{sec:repeated_split_protocol}
+% ------------------------------------------------------------
+
+The headline validation result uses a fixed stratified 70/30 split and the full soft-voting ensemble. To test sensitivity to the train-validation split, we repeat the 70/30 procedure over ten additional random seeds. For computational efficiency, these repeated-split tests use the same 48-dimensional diagnostic feature representation with a faster boosted-tree classifier rather than the full voting ensemble. Thus, the repeated-split numbers should be interpreted as a robustness test of the feature representation, not as a second headline model. The fixed-split voting-ensemble result remains the primary performance result.
+
+% ============================================================
+\section{Full-trajectory classification results}
+\label{sec:full_trajectory_results}
+% ============================================================
+
+This section presents the fixed-split full-trajectory classification result. The classifier uses trajectory-level summary features computed over the sampled evolution up to termination or \(100\Tout\). This establishes outcome separability, but it should not be confused with a strictly causal early-warning experiment. That distinction is discussed in \Cref{sec:early_warning}.
+
+% ------------------------------------------------------------
+
+% ------------------------------------------------------------
+\subsection{Classifier implementation details}
+\label{sec:classifier_details}
+% ------------------------------------------------------------
+
+The fixed-split headline classifier is a soft-voting ensemble consisting of a regularized logistic regression model, a random forest, and a gradient-boosted tree model. The repeated-split and ablation experiments use a faster boosted-tree classifier for computational efficiency. The principal implementation choices are summarized in \Cref{tab:model_details}.
+
+\begin{table}[H]
+\centering
+\caption{Implementation details for the classifiers used in the paper. The fixed-split headline result uses the full voting ensemble. Repeated-split and ablation tests use a faster boosted-tree classifier to evaluate robustness of the feature representation.}
+\label{tab:model_details}
+\begin{tabular}{p{0.28\linewidth}p{0.62\linewidth}}
+\toprule
+Component & Implementation details \\
+\midrule
+Logistic component & Standardized features; \(L_2\)-regularized logistic regression; class-balanced weights; maximum 2000 iterations \\
+Random forest component & 300 trees; maximum depth 10; minimum leaf size 3; class-balanced subsampling \\
+Gradient-boosted component & Gradient-boosted decision trees; maximum depth 4; learning rate \(0.035\)--\(0.05\); subsampling and column subsampling enabled \\
+Voting ensemble & Soft voting with weights favouring the boosted-tree component \\
+Repeated-split model & Fast boosted-tree classifier on the same 48 diagnostic features \\
+Train-validation split & Stratified 70/30 split; fixed seed for headline result; ten additional seeds for robustness \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Fixed-split validation performance}
+\label{sec:fixed_split_performance}
+% ------------------------------------------------------------
+
+\Cref{fig:validation_dashboard} summarizes the fixed-split validation result. The full diagnostic model achieves 99.43\% validation accuracy and AUC-ROC \(=0.99974\). The validation confusion matrix contains 2,208 true stable classifications, 775 true ejection classifications, 15 false positives, and 2 false negatives.
+
+\begin{figure}[H]
+    \centering
+    \zoomfigure{\detokenize{Accuracy 10k.png}}{width=\linewidth}
+    \caption{
+    Complete validation dashboard for the 9,999 usable-system IAS15 suite. The model is trained on 6,999 systems and evaluated on a held-out validation set of 3,000 systems. The validation accuracy is 99.43\%, with AUC-ROC \(=0.99974\). The confusion matrix contains 2,208 true stable systems, 775 true ejections, 15 false positives, and 2 missed ejections. The feature-importance panel shows that pairwise energy-exchange variability, energy-transfer rates, hierarchy curvature, and seam-drift diagnostics are among the leading features.
+    }
+    \label{fig:validation_dashboard}
+\end{figure}
+
+The numerical metrics are listed in \Cref{tab:validation_metrics}. The ejection recall is 99.74\%, meaning that only two ejections are missed in the validation set. The stable specificity is 99.33\%, indicating a low false-alarm rate among systems that remain stable over the integration window.
+
+\begin{table}[H]
+\centering
+\caption{Fixed-split validation performance of the full diagnostic feature model on the 3,000-system held-out validation set.}
+\label{tab:validation_metrics}
+\begin{tabular}{lc}
+\toprule
+Metric & Value \\
+\midrule
+Validation accuracy & 99.43\% \\
+AUC-ROC & 0.999738 \\
+Precision, ejection class & 98.10\% \\
+Recall, ejection class & 99.74\% \\
+F1, ejection class & 0.9892 \\
+Specificity, stable class & 99.33\% \\
+\midrule
+True stable \(TN\) & 2,208 \\
+False alarm \(FP\) & 15 \\
+Missed ejection \(FN\) & 2 \\
+True ejection \(TP\) & 775 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The training accuracy for the same fixed split is 99.89\%, while the validation accuracy is 99.43\%. The corresponding train-validation gap is approximately 0.45 percentage points. This small gap suggests that the model generalizes well within the sampled distribution.
+
+% ------------------------------------------------------------
+\subsection{Comparison with hierarchy-threshold and initial-condition baselines}
+\label{sec:baseline_comparison}
+% ------------------------------------------------------------
+
+The one-dimensional \(\Hmin\)-threshold baseline provides a useful sanity check. If the full model merely learned that low-\(H\) systems eject, then the threshold baseline should perform comparably. It does not. On the fixed validation split, the \(\Hmin\)-threshold baseline reaches 85.40\% accuracy and 69.63\% ejection recall.
+
+The initial-condition-only baselines perform better than the one-dimensional threshold baseline, reaching approximately 94.6--94.8\% accuracy. This is consistent with previous machine-learning work showing that initial orbital architecture is strongly informative. However, the full time-dependent diagnostic model is substantially stronger, especially in missed-ejection reduction. The comparison is shown in \Cref{tab:baseline_comparison}.
+
+\begin{table}[H]
+\centering
+\caption{Fixed-split comparison between simple hierarchy thresholding, initial-condition-only baselines, and the full time-dependent diagnostic model. All results are evaluated on the same 3,000-system validation split.}
+\label{tab:baseline_comparison}
+\begin{tabular}{lccccc}
+\toprule
+Model & Accuracy & AUC-ROC & Precision & Recall & F1 \\
+\midrule
+\(\Hmin\)-threshold baseline & 85.40\% & -- & 72.81\% & 69.63\% & 0.7118 \\
+Initial-condition logistic baseline & 94.57\% & 0.9897 & 84.42\% & 96.91\% & 0.9023 \\
+Initial-condition tree baseline & 94.83\% & 0.9896 & 89.17\% & 91.12\% & 0.9013 \\
+Full diagnostic feature model & 99.43\% & 0.9997 & 98.10\% & 99.74\% & 0.9892 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The comparison clarifies the role of the diagnostic features. Initial orbital parameters already contain substantial stability information, as expected from previous machine-learning studies of hierarchical triples. The time-dependent diagnostic model improves on this baseline by using the actual deformation of the hierarchy during the integration. The most significant practical improvement is in the reduction of missed ejections: the initial-condition tree model misses 69 ejections on the fixed validation split, whereas the full diagnostic model misses only two.
+
+% ------------------------------------------------------------
+\subsection{Prediction confidence and confusion matrix}
+\label{sec:confidence_confusion}
+% ------------------------------------------------------------
+
+The prediction-confidence panel in \Cref{fig:validation_dashboard} shows that most stable systems are assigned low ejection probability and most ejecting systems are assigned high ejection probability. The small number of ambiguous systems is consistent with the finite-width stability boundary expected for hierarchical triples. The false positives and false negatives are therefore not surprising; they are concentrated near the boundary where low-hierarchy passages, energy exchange, and survival over \(100\Tout\) can coexist.
+
+The fixed-split confusion matrix contains only two missed ejections. This is the most important practical improvement over the initial-condition baselines: the tree-based initial-condition model misses 69 ejections on the same validation split, while the full time-dependent diagnostic model misses only two.
+
+% ============================================================
+\section{Robustness tests}
+\label{sec:robustness}
+% ============================================================
+
+The fixed-split result establishes the headline performance, but a mature validation requires additional tests. We therefore examine repeated train-validation splits, repeated \(\Hmin\)-threshold baselines, and feature ablations.
+
+% ------------------------------------------------------------
+\subsection{Repeated train-validation splits}
+\label{sec:repeated_splits}
+% ------------------------------------------------------------
+
+We repeat the stratified 70/30 train-validation split over ten random seeds. These tests use a fast boosted-tree classifier on the same 48-dimensional diagnostic feature set. The resulting performance distribution is shown in \Cref{tab:repeated_split_summary}.
+
+\begin{table}[H]
+\centering
+\caption{Repeated 70/30 train-validation split performance for the full diagnostic feature representation. Values are means and standard deviations over ten random splits.}
+\label{tab:repeated_split_summary}
+\begin{tabular}{lcccc}
+\toprule
+Metric & Mean & Std. dev. & Minimum & Maximum \\
+\midrule
+Accuracy & 99.09\% & 0.18\% & 98.77\% & 99.37\% \\
+AUC-ROC & 0.99961 & 0.00012 & 0.99940 & 0.99982 \\
+Precision, ejection class & 97.76\% & 0.70\% & 96.72\% & 98.97\% \\
+Recall, ejection class & 98.74\% & 0.29\% & 98.20\% & 99.10\% \\
+F1, ejection class & 0.9825 & 0.0033 & 0.9764 & 0.9877 \\
+Specificity, stable class & 99.21\% & 0.25\% & 98.83\% & 99.64\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The repeated-split experiment confirms that the high performance is not an artifact of the particular fixed split used for the headline result. The mean repeated-split accuracy is 99.09\%, with a standard deviation of 0.18 percentage points.
+
+For comparison, the \(\Hmin\)-threshold baseline is also repeated over the same split seeds. The results are listed in \Cref{tab:hmin_repeated_summary}.
+
+\begin{table}[H]
+\centering
+\caption{Repeated 70/30 split performance for the \(\Hmin\)-threshold baseline. The threshold is fit on the training set for each split and evaluated on the corresponding validation set.}
+\label{tab:hmin_repeated_summary}
+\begin{tabular}{lcccc}
+\toprule
+Metric & Mean & Std. dev. & Minimum & Maximum \\
+\midrule
+Accuracy & 85.30\% & 0.60\% & 84.53\% & 86.40\% \\
+Precision, ejection class & 71.34\% & 1.62\% & 69.39\% & 73.56\% \\
+Recall, ejection class & 72.38\% & 1.87\% & 68.85\% & 74.90\% \\
+F1, ejection class & 0.7183 & 0.0110 & 0.7026 & 0.7405 \\
+Specificity, stable class & 89.82\% & 0.90\% & 88.53\% & 91.09\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The repeated-threshold result reinforces the fixed-split comparison: \(\Hmin\) is informative, but it does not capture the full outcome structure.
+
+% ------------------------------------------------------------
+\subsection{Feature ablation study}
+\label{sec:ablation_results}
+% ------------------------------------------------------------
+
+The feature ablation results are listed in \Cref{tab:ablation_results}. The full model performs best. However, several restricted feature groups also perform well, indicating that the classification signal is distributed across multiple diagnostic families.
+
+\begin{table}[H]
+\centering
+\caption{Feature ablation results on the fixed 3,000-system validation split. The classifier is trained on the indicated feature subset and evaluated on the same validation split.}
+\label{tab:ablation_results}
+\begin{tabular}{lcccc}
+\toprule
+Feature set & Features & Accuracy & AUC-ROC & F1 \\
+\midrule
+Full feature set & 48 & 99.43\% & 0.9998 & 0.9891 \\
+All except energy & 39 & 99.37\% & 0.9998 & 0.9878 \\
+Hierarchy plus signal & 33 & 99.20\% & 0.9997 & 0.9846 \\
+Hierarchy basic plus derivatives & 26 & 98.80\% & 0.9993 & 0.9769 \\
+Hierarchy derivatives only & 14 & 98.43\% & 0.9991 & 0.9696 \\
+All except hierarchy & 22 & 98.43\% & 0.9989 & 0.9697 \\
+Energy plus seam & 15 & 98.20\% & 0.9986 & 0.9652 \\
+Hierarchy basic only & 12 & 98.10\% & 0.9978 & 0.9639 \\
+Seam only & 6 & 97.50\% & 0.9969 & 0.9518 \\
+Energy only & 9 & 96.57\% & 0.9957 & 0.9338 \\
+Signal only & 7 & 94.30\% & 0.9847 & 0.8889 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Several points follow from this table. First, hierarchy features are the strongest individual family: hierarchy statistics alone reach 98.10\% accuracy, and hierarchy derivatives alone reach 98.43\%. Second, energy and seam diagnostics are independently predictive, reaching 96.57\% and 97.50\% accuracy respectively. Third, the full model remains the best-performing configuration, indicating that the diagnostic families are complementary.
+
+The ablation results also refine the physical interpretation. The dominant separability axis is hierarchy geometry and its time dependence, while pairwise energy exchange and seam drift provide additional information that sharpens the decision boundary and reduces classification errors.
+
+% ------------------------------------------------------------
+\subsection{Interpretation of feature-family performance}
+\label{sec:feature_family_interpretation}
+% ------------------------------------------------------------
+
+The feature-ablation hierarchy suggests a layered view of the classification problem. The simplest one-dimensional hierarchy threshold detects gross loss of hierarchy but fails near the finite-width boundary. Adding time-dependent hierarchy information greatly improves performance. Energy-exchange and seam-tension diagnostics are not required for high accuracy in every case, but they provide independent physical channels that help resolve ambiguous systems.
+
+This is consistent with the structure of hierarchical triples. A system can briefly enter a low-\(H\) configuration and survive if the encounter does not redistribute enough energy or angular momentum to unbind the tertiary. Conversely, an ejection-producing encounter is typically accompanied by a coherent combination of hierarchy deformation, pairwise energy exchange, and angular-momentum reorganization. The full feature model performs best because it measures these effects jointly.
+
+\begin{table}[H]
+\centering
+\caption{Summary of evidence levels. The results show a progression from simple one-dimensional thresholding to initial-condition-only learning and finally to time-dependent diagnostic classification.}
+\label{tab:evidence_ladder}
+\begin{tabular}{lcc}
+\toprule
+Method & Information used & Representative validation accuracy \\
+\midrule
+\(\Hmin\)-threshold baseline & Full-trajectory minimum hierarchy only & \(85.30\pm0.60\%\) \\
+Initial-condition tree baseline & Initial orbital architecture only & 94.83\% \\
+Hierarchy basic features & Time-dependent hierarchy summaries & 98.10\% \\
+Hierarchy derivative features & Time-dependent hierarchy deformation & 98.43\% \\
+Full diagnostic feature model & Hierarchy, energy, seam, signal features & 99.43\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ============================================================
+\section{Physical interpretation}
+\label{sec:physical_interpretation}
+% ============================================================
+
+The validation and robustness results show that terminal ejection is strongly classifiable from the proposed diagnostic feature space. We now interpret the leading feature families in dynamical terms. The interpretation is intentionally conservative: the results support a physically motivated feature representation, not a theorem that ejection is topologically predetermined for all triples.
+
+% ------------------------------------------------------------
+\subsection{Hierarchy geometry as the primary separability axis}
+\label{sec:hierarchy_primary_axis}
+% ------------------------------------------------------------
+
+The ablation study in \Cref{tab:ablation_results} shows that hierarchy features provide the primary separability axis. The one-dimensional \(\Hmin\)-threshold baseline is informative but limited, reaching only \(85.30\pm0.60\%\) accuracy over repeated splits. In contrast, hierarchy statistics alone reach 98.10\% accuracy on the fixed validation split, and hierarchy derivatives alone reach 98.43\%.
+
+This indicates that the geometry of hierarchy loss is more informative than a single minimum value. The classifier benefits from knowing not only whether \(H(t)\) becomes small, but how the system approaches the low-hierarchy regime: the slope, curvature, crossing structure, and filtered contraction rate all help distinguish transient low-\(H\) passages from ejection-producing evolution.
+
+The empirical threshold \(H_{\rm th}=2.575\) is close to the reference value \(\Hcrit=2.5\), supporting the interpretation of \(\Hcrit\simeq2.5\) as a useful hierarchy-collapse scale in the sampled domain. However, the ablation results show that this scale is not sufficient by itself. It is best understood as a reference boundary around which the time-dependent diagnostic features become most informative.
+
+% ------------------------------------------------------------
+\subsection{Pairwise energy redistribution}
+\label{sec:energy_redistribution}
+% ------------------------------------------------------------
+
+Ejection requires a redistribution of orbital energy. In a typical ejection-producing interaction, the escaping body gains sufficient energy to leave the system, while the remaining binary changes its binding energy. The pairwise diagnostic energies \(E_{ij}\) do not form separately conserved Hamiltonians of the full three-body problem, but their time variability measures the strength of exchange among the pair channels.
+
+Energy-only features reach 96.57\% accuracy, while energy plus seam-tension features reach 98.20\%. These values are lower than the hierarchy-only feature sets but still highly predictive. This indicates that pairwise energy exchange is an independent and physically meaningful channel of information.
+
+\Cref{fig:energy_transfer} shows a representative energy-exchange visualization. The figure is illustrative rather than statistical; the statistical evidence for the role of energy exchange is the ablation performance and the feature-importance ranking.
+
+\begin{figure}[H]
+    \centering
+    \zoomfigure{Plot_2_Energy_Transfer.png}{width=\linewidth}
+    \caption{
+    Representative pairwise energy-exchange behaviour during an ejection-producing interaction. The plotted two-body energies are diagnostic quantities rather than separately conserved Hamiltonians of the full three-body system. The qualitative trend illustrates redistribution of orbital energy between the inner-binary channel and the tertiary channel. In the validation suite, energy-exchange features are independently predictive and contribute to the full diagnostic model.
+    }
+    \label{fig:energy_transfer}
+\end{figure}
+
+% ------------------------------------------------------------
+\subsection{Angular-momentum seam drift}
+\label{sec:angular_momentum_seam_drift}
+% ------------------------------------------------------------
+
+The seam-tension diagnostic \(\Ores(t)\) measures the normalized misalignment among the three pairwise angular-momentum vectors. In a clean hierarchical configuration, the inner and outer orbital channels define a useful decomposition of the motion. During strong three-body interactions, this decomposition becomes less stable: pairwise angular-momentum vectors change direction and magnitude, and their mutual consistency degrades.
+
+Seam-only features reach 97.50\% accuracy, and energy plus seam features reach 98.20\%. This shows that angular-momentum reorganization contains substantial information even without direct hierarchy statistics. Physically, this is expected: ejection is not only a radial separation event, but also a redistribution of angular momentum across the three pairwise channels.
+
+% ------------------------------------------------------------
+\subsection{Pre-ejection metastable regime}
+\label{sec:pre_ejection_metastable}
+% ------------------------------------------------------------
+
+We refer to the low-hierarchy, high-diagnostic-activity region as a pre-ejection metastable regime. This term is descriptive. It denotes a region of diagnostic space in which ejection is much more likely, not a guarantee that every system crossing \(\Hcrit\) must eject.
+
+Stable systems can temporarily enter low-\(H\) regions and recover. This is why the \(\Hmin\)-threshold baseline is imperfect. Ejecting systems, however, tend to combine low hierarchy with stronger hierarchy deformation, energy-exchange variability, and seam drift. The full classifier succeeds because it uses this joint diagnostic structure.
+
+% ============================================================
+\section{Early-warning proxy and causal-prediction requirement}
+\label{sec:early_warning}
+% ============================================================
+
+The main validation in \Cref{sec:full_trajectory_results} is a full-trajectory outcome-classification experiment. It uses diagnostic summaries computed from the sampled trajectory up to termination or \(100\Tout\). This establishes strong separability of terminal outcomes, but it is not equivalent to a strictly causal early-warning model.
+
+% ------------------------------------------------------------
+\subsection{First-breach proxy}
+\label{sec:first_breach_proxy}
+% ------------------------------------------------------------
+
+As a preliminary measure of warning potential, we track the first sampled crossing of the low-hierarchy region \(H<\Hcrit\). For each ejecting system that crosses this threshold, we define the advance proxy
+
+\begin{equation}
+    f_{\rm adv}
+    =
+    1 -
+    f_{\rm first\,breach},
+    \label{eq:advance_proxy}
+\end{equation}
+
+where \(f_{\rm first\,breach}\) is the fractional position of the first sampled \(H<\Hcrit\) crossing within the stored trajectory. In the 10,000-system run, 1,775 ejected systems exhibit such a crossing. The median advance proxy is approximately 90.0\%, and the mean advance proxy is approximately 81.2\%.
+
+These values indicate that, for many ejected systems, the low-hierarchy regime appears well before termination in the stored trajectory. However, this is only a proxy. It does not measure the performance of a classifier restricted to information available before ejection.
+
+% ------------------------------------------------------------
+\subsection{Limitations of full-trajectory classification}
+\label{sec:full_trajectory_limitation}
+% ------------------------------------------------------------
+
+Full-trajectory classification is easier than causal prediction. Features such as \(\Hmin\), \(H_{\rm final}\), threshold-crossing fraction, and energy-exchange statistics can contain information from late in the trajectory. Such features are appropriate for establishing outcome separability, but they cannot by themselves demonstrate real-time predictive lead time.
+
+This distinction is important for interpreting the 99.43\% validation accuracy. The result shows that terminal ejection is highly separable in the diagnostic feature space. It does not yet prove that ejection can always be predicted early from only a short initial segment of the trajectory.
+
+% ------------------------------------------------------------
+\subsection{Truncated-window validation as next step}
+\label{sec:truncated_window_next}
+% ------------------------------------------------------------
+
+A stricter causal early-warning experiment should construct features from truncated trajectory windows. For example, one can build separate datasets using only the first 10\%, 20\%, 30\%, and 50\% of each trajectory. The classifier would then be trained and evaluated using only those partial-window features while predicting the final outcome.
+
+A true warning time can be defined as the first time at which the classifier probability exceeds a fixed threshold,
+
+\begin{equation}
+    \Pej(t) > P_{\rm warn}.
+\end{equation}
+
+For ejecting systems, the lead time is then
+
+\begin{equation}
+    \Delta t_{\rm lead}
+    =
+    t_{\rm eject}-t_{\rm warn},
+\end{equation}
+
+and the lead fraction is
+
+\begin{equation}
+    f_{\rm lead}
+    =
+    \frac{t_{\rm eject}-t_{\rm warn}}{t_{\rm eject}}.
+\end{equation}
+
+This truncated-window experiment is required before making strong claims about real-time early warning. The present work establishes the diagnostic feature space and its full-trajectory separability; causal warning validation is the next step.
+
+% ============================================================
+\section{Observed-system case studies}
+\label{sec:case_studies}
+% ============================================================
+
+The 10,000-system validation suite establishes the performance of the diagnostic feature model on a controlled synthetic population. We now apply the same hierarchy and pairwise-diagnostic framework to three observed hierarchical systems: HD~188753, Alpha~Centauri AB--Proxima, and GW~Orionis. These applications are illustrative case studies rather than statistical validation, since the true terminal outcomes of observed systems are not known over the relevant dynamical timescales.
+
+Each system is integrated with REBOUND IAS15 using representative published orbital parameters. The purpose is to examine whether the hierarchy metric and associated diagnostics remain in the stable region over an extended baseline. We use a 500 kyr integration window for all three systems. This window covers many outer orbits for the compact systems, but less than one full outer orbit for Alpha~Centauri AB--Proxima.
+
+% ------------------------------------------------------------
+\subsection{HD~188753}
+\label{sec:hd188753}
+% ------------------------------------------------------------
+
+HD~188753 is a compact hierarchical stellar triple and is therefore a useful case study for testing whether short-period hierarchy oscillations necessarily imply imminent instability. In the 500 kyr integration, the hierarchy metric remains bounded and does not cross the reference threshold \(H=2.5\). The pairwise energy diagnostics show structured exchange between the outer channels while the inner-binary channel remains comparatively stable.
+
+This behaviour is consistent with a chaos-bounded but non-ejecting regime. The system exhibits significant diagnostic variability, but the variability remains bounded over the integration window. In the language of the present framework, HD~188753 occupies a region in which pairwise energy exchange is active but does not produce sustained hierarchy collapse.
+
+% ------------------------------------------------------------
+\subsection{Alpha~Centauri AB--Proxima}
+\label{sec:alpha_cen}
+% ------------------------------------------------------------
+
+Alpha~Centauri AB--Proxima is an extreme wide-hierarchy case. Its hierarchy metric remains far above \(\Hcrit\) throughout the sampled interval. This makes it a useful sanity check: a stable, widely separated hierarchy should not be falsely interpreted as an ejection-prone system.
+
+The 500 kyr integration covers only a fraction of the Proxima outer orbit. Therefore, the result should not be interpreted as a complete long-term stability proof. Rather, it confirms that the diagnostic framework places this system deep in the stable region over the sampled arc, as expected from its large hierarchy ratio.
+
+% ------------------------------------------------------------
+\subsection{GW~Orionis}
+\label{sec:gw_orionis}
+% ------------------------------------------------------------
+
+GW~Orionis is a young hierarchical triple associated with a structured circumtriple disk. In the point-mass integrations used here, the disk is not treated hydrodynamically. Any disk contribution is therefore at most approximated through an effective mass or ignored, depending on the chosen initialization. This limitation should be kept in mind when interpreting the result.
+
+Within the point-mass approximation, GW~Orionis remains above \(\Hcrit\) over the 500 kyr baseline. The hierarchy metric shows bounded oscillatory structure rather than a monotonic approach to the low-hierarchy ejection region. A full treatment of GW~Orionis would require disk gravity, gas dynamics, and dissipative effects; the present integration is only a first diagnostic application of the hierarchy-based framework.
+
+\begin{figure}[H]
+    \centering
+    \zoomfigure{TOPOLOGICAL_FRAMEWORK_VALIDATION_500kyr.png}{width=\linewidth}
+    \caption{
+    Case-study integrations of HD~188753, Alpha~Centauri AB--Proxima, and GW~Orionis over a 500 kyr baseline using REBOUND IAS15. The top panels show the hierarchy metric \(H(t)\). All three systems remain above the reference low-hierarchy threshold \(\Hcrit=2.5\). The lower panels show representative seam-tension and pairwise energy-exchange diagnostics for HD~188753, illustrating bounded diagnostic variability rather than secular drift toward the ejection region. These integrations are illustrative case studies and are not used in the supervised train-validation split.
+    }
+    \label{fig:real_systems_500kyr}
+\end{figure}
+
+% ============================================================
+\section{Forced-ejection stress test}
+\label{sec:forced_ejection}
+% ============================================================
+
+In addition to the statistical validation suite and observed-system case studies, we include a controlled forced-ejection stress test. In this experiment, the tertiary is initialized close to the inner-binary barycentric region, placing the system in an intentionally low-hierarchy configuration from the start. The purpose is not to model a typical astrophysical initial condition, but to verify that the diagnostics respond as expected in an extreme ejection-prone configuration.
+
+\begin{figure}[H]
+    \centering
+    \zoomfigure{forced_ejection_Hierarchical_Massive_Primary.png}{width=\linewidth}
+    \caption{
+    Forced-ejection stress test. The tertiary is initialized in a low-hierarchy configuration near the inner-binary barycentric region. The hierarchy metric \(H(t)\) begins below the reference threshold and the system subsequently undergoes ejection. This experiment is a diagnostic stress test rather than a representative draw from the population used in the 10,000-system validation suite.
+    }
+    \label{fig:forced_ejection}
+\end{figure}
+
+The forced-ejection experiment demonstrates that the hierarchy and seam-tension diagnostics respond immediately to a deliberately breached configuration. However, because the system is initialized in an already extreme state, this test should not be counted as evidence for the statistical performance of the classifier. Its role is illustrative: it shows the behaviour of the diagnostic quantities when hierarchy loss is imposed by construction.
+
+% ============================================================
+\section{Limitations and future work}
+\label{sec:limitations}
+% ============================================================
+
+The validation results are strong within the sampled regime, but several limitations remain. We list them explicitly because they define the next steps required to turn the present framework into a broader stability tool.
+
+% ------------------------------------------------------------
+\subsection{Sampling domain}
+\label{sec:sampling_limitations}
+% ------------------------------------------------------------
+
+The fiducial dataset samples masses uniformly between \(0.5\) and \(2.0\,\Msun\), inner semi-major axes between 0.8 and 1.2 AU, outer semi-major axes between 3 and 12 AU, eccentricities \(e_{\rm in}\leq0.4\), \(e_{\rm out}\leq0.7\), and mutual inclinations \(0^\circ\leq i_{\rm mut}\leq60^\circ\). This is a controlled quasi-hierarchical prograde-to-moderately inclined regime. It is not the full parameter space of hierarchical triples.
+
+A broader validation suite should include mutual inclinations from \(0^\circ\) to \(180^\circ\), highly retrograde configurations, log-uniform mass ratios, planetary and test-particle tertiaries, outer eccentricities approaching \(e_{\rm out}\simeq0.95\), wider and tighter values of \(a_{\rm out}/a_{\rm in}\), and longer integration windows. Only after such tests should \(\Hcrit\simeq2.5\) be interpreted as more than a robust scale within the present fiducial distribution.
+
+% ------------------------------------------------------------
+\subsection{Integration duration}
+\label{sec:integration_duration_limit}
+% ------------------------------------------------------------
+
+The present integrations are run for \(100\Tout\). This window is sufficient to identify many unstable systems in the sampled regime, but it does not test very long-lived delayed disruptions. Previous work on triple stability has shown that systems near the boundary can survive for many outer periods before disruption. Longer integrations, such as \(300\Tout\), \(1000\Tout\), or problem-specific physical timescales, are needed to separate truly stable systems from delayed ejections.
+
+% ------------------------------------------------------------
+\subsection{Baselines and out-of-distribution tests}
+\label{sec:baseline_ood_future}
+% ------------------------------------------------------------
+
+The present paper includes a one-dimensional \(\Hmin\)-threshold baseline, initial-condition-only machine-learning baselines, repeated splits, and feature ablations. These tests show that the time-dependent diagnostic representation improves over simple thresholding and over initial-condition-only classification within the sampled domain.
+
+However, the present version does not yet provide a direct benchmark against all published analytic and empirical stability criteria on the same dataset. In particular, future work should compare against the Mardling--Aarseth criterion \citep{Mardling2001}, the empirical stability boundary of \citet{Tory2022}, improved ML stability models such as \citet{Vynatheya2022}, time-series CNN approaches such as \citet{LalandeTrani2022}, and long-baseline disruption-time studies such as \citet{Hayashi2022,Hayashi2023}. Such comparisons are required before claiming broad superiority over existing stability methods.
+
+Out-of-distribution tests are equally important. A model trained on the present fiducial distribution may not extrapolate to high inclinations, extreme mass ratios, compact-object triples, or disk-bearing young systems. Future work should therefore train and test on explicitly separated parameter domains.
+
+\subsection{Million-system scaling}
+\label{sec:million_scaling}
+% ------------------------------------------------------------
+
+The 10,000-system run required approximately 178.8 minutes in a Google Colab environment, or about 1.04 seconds per generated system. Since each system is independent, the calculation is embarrassingly parallel. At the measured rate, a \(10^6\)-system suite would require approximately 12 days on one worker, a few hours on a 100-core cluster, or less than an hour on a larger supercomputing allocation, aside from I/O overhead.
+
+A million-system suite would allow the diagnostic feature space to be mapped with much higher resolution. It would also enable systematic out-of-distribution tests, uncertainty estimates on the hierarchy-collapse scale, and separate classifiers for ejection, collision, exchange, and long-lived metastability.
+
+% ------------------------------------------------------------
+\subsection{Relativistic and dissipative extensions}
+\label{sec:relativistic_future}
+% ------------------------------------------------------------
+
+The present integrations are Newtonian point-mass integrations. Relativistic precession, tides, stellar evolution, gravitational radiation, and disk hydrodynamics are not included. These effects may be important for compact-object triples, very tight stellar triples, and young disk-bearing systems. Extending the diagnostic framework to these regimes requires additional physics and should be treated as a separate validation problem.
+
+% ============================================================
+\section{Conclusions}
+\label{sec:conclusions}
+% ============================================================
+
+We have introduced a time-dependent, topology-inspired diagnostic feature framework for classifying terminal ejection in hierarchical triple systems. The method does not solve the three-body problem and does not remove trajectory-level chaos. Instead, it tests whether terminal ejection is separable in a feature space built from hierarchy loss, pairwise energy exchange, angular-momentum seam tension, and time-series structure.
+
+The main results are as follows.
+
+\begin{enumerate}[label=(\roman*)]
+    \item We generated 10,000 hierarchical triples using REBOUND IAS15. One system was rejected by the pre-specified numerical energy-error tolerance, leaving 9,999 usable systems.
+    
+    \item On a fixed stratified 6,999/3,000 train-validation split, the full diagnostic feature model achieved 99.43\% validation accuracy, AUC-ROC \(=0.99974\), ejection precision \(=98.10\%\), ejection recall \(=99.74\%\), F1 \(=0.9892\), and stable specificity \(=99.33\%\). The validation confusion matrix contains only two missed ejections.
+    
+    \item Repeated 70/30 splits give a mean full-feature accuracy of \(99.09\pm0.18\%\) and mean AUC-ROC \(=0.99961\pm0.00012\), showing that the feature representation is not dependent on a single train-validation split.
+    
+    \item A one-dimensional \(\Hmin\)-threshold baseline reaches only \(85.30\pm0.60\%\) accuracy over repeated splits. Initial-condition-only machine-learning baselines reach about 94.6--94.8\% accuracy on the fixed split. The full time-dependent diagnostic model improves substantially over both classes of baseline.
+    
+    \item Feature ablations show that hierarchy features provide the primary separability, while derivative, energy-exchange, seam-tension, and signal-processing features provide complementary information. The full 48-feature model performs best.
+    
+    \item A threshold sweep gives \(H_{\rm th}=2.575\), close to the adopted reference value \(\Hcrit=2.5\). We interpret \(\Hcrit\simeq2.5\) as an approximate hierarchy-collapse scale within the present fiducial quasi-hierarchical distribution, not as a universal separatrix.
+\end{enumerate}
+
+The present results support the use of time-dependent hierarchy, energy-exchange, and angular-momentum diagnostics as a compact and accurate feature representation for finite-time ejection classification in hierarchical triples. The result is local to the sampled quasi-hierarchical regime and to the \(100\Tout\) integration window. It should therefore be viewed as a strong outcome-classification result and as a foundation for causal early-warning models, not yet as a universal stability criterion. The next steps are direct benchmarking against published criteria, truncated-window early-warning validation, broader out-of-distribution parameter surveys, and million-system population-scale simulations.
+
+% ============================================================
+\section*{Acknowledgements}
+\addcontentsline{toc}{section}{Acknowledgements}
+% ============================================================
+
+The author acknowledges the REBOUND open-source \(N\)-body package \citep{Rein2012} and the IAS15 integrator \citep{Rein2015}, which form the computational foundation of this work. The author also acknowledges the broader literature on hierarchical triple stability, secular dynamics, and large-scale numerical classification, which motivated the validation strategy adopted here.
+
+% ============================================================
+% REFERENCES
+% ============================================================
+
+\bibliographystyle{aasjournal}
+
+\begin{thebibliography}{99}
+
+\bibitem[Breen et al.(2019)]{Breen2019}
+Breen, P.~G., Foley, C.~N., Boekholt, T., \& Portegies Zwart, S.\ 2019,
+\textit{MNRAS Letters}, 494, 2465.
+
+\bibitem[Chirikov(1979)]{Chirikov1979}
+Chirikov, B.~V.\ 1979,
+\textit{Physics Reports}, 52, 263.
+
+\bibitem[Cincotta \& Sim\'o(2000)]{Cincotta2000}
+Cincotta, P.~M., \& Sim\'o, C.\ 2000,
+\textit{A\&AS}, 147, 205.
+
+\bibitem[Ford et al.(2000)]{Ford2000}
+Ford, E.~B., Kozinsky, B., \& Rasio, F.~A.\ 2000,
+\textit{ApJ}, 535, 385.
+
+\bibitem[Holman \& Wiegert(1999)]{Holman1999}
+Holman, M.~J., \& Wiegert, P.~A.\ 1999,
+\textit{AJ}, 117, 621.
+
+\bibitem[Katz et al.(2011)]{Katz2011}
+Katz, B., Dong, S., \& Malhotra, R.\ 2011,
+\textit{PRL}, 107, 181101.
+
+\bibitem[Kozai(1962)]{Kozai1962}
+Kozai, Y.\ 1962,
+\textit{AJ}, 67, 591.
+
+\bibitem[Laskar(1993)]{Laskar1993}
+Laskar, J.\ 1993,
+\textit{Celestial Mechanics and Dynamical Astronomy}, 56, 191.
+
+\bibitem[Lense \& Thirring(1918)]{LenseThirring1918}
+Lense, J., \& Thirring, H.\ 1918,
+\textit{Physikalische Zeitschrift}, 19, 156.
+
+\bibitem[Lidov(1962)]{Lidov1962}
+Lidov, M.~L.\ 1962,
+\textit{Planet. Space Sci.}, 9, 719.
+
+\bibitem[Li et al.(2014)]{Li2014}
+Li, G., Naoz, S., Kocsis, B., \& Loeb, A.\ 2014,
+\textit{MNRAS}, 451, 1341.
+
+\bibitem[Lithwick \& Naoz(2011)]{Lithwick2011}
+Lithwick, Y., \& Naoz, S.\ 2011,
+\textit{ApJ}, 742, 94.
+
+\bibitem[Liu et al.(2015)]{Liu2015}
+Liu, B., Mu\~noz, D.~J., \& Lai, D.\ 2015,
+\textit{MNRAS}, 447, 747.
+
+\bibitem[Mardling \& Aarseth(2001)]{Mardling2001}
+Mardling, R.~A., \& Aarseth, S.~J.\ 2001,
+\textit{MNRAS}, 321, 398.
+
+\bibitem[Naoz et al.(2011)]{Naoz2011}
+Naoz, S., Farr, W.~M., Lithwick, Y., Rasio, F.~A., \& Teyssandier, J.\ 2011,
+\textit{Nature}, 473, 187.
+
+\bibitem[Naoz et al.(2012)]{Naoz2012}
+Naoz, S., Farr, W.~M., \& Rasio, F.~A.\ 2012,
+\textit{ApJL}, 754, L36.
+
+\bibitem[Petrovich(2015)]{Petrovich2015}
+Petrovich, C.\ 2015,
+\textit{ApJ}, 805, 75.
+
+\bibitem[Poincar\'e(1890)]{Poincare1890}
+Poincar\'e, H.\ 1890,
+\textit{Acta Mathematica}, 13, 1.
+
+\bibitem[Rein \& Liu(2012)]{Rein2012}
+Rein, H., \& Liu, S.-F.\ 2012,
+\textit{A\&A}, 537, A128.
+
+\bibitem[Rein \& Spiegel(2015)]{Rein2015}
+Rein, H., \& Spiegel, D.~S.\ 2015,
+\textit{MNRAS}, 446, 1424.
+
+\bibitem[\v{S}uvakov \& Dmitra\v{s}inovi\'c(2013)]{Suvakov2013}
+\v{S}uvakov, M., \& Dmitra\v{s}inovi\'c, V.\ 2013,
+\textit{Physical Review Letters}, 110, 114301.
+
+\bibitem[Tokovinin(2018)]{Tokovinin2018}
+Tokovinin, A.\ 2018,
+\textit{ApJS}, 235, 6.
+
+\bibitem[Vynatheya et al.(2022)]{Vynatheya2022}
+Vynatheya, P., Hamers, A.~S., Mardling, R.~A., \& Bellinger, E.~P.\ 2022,
+\textit{MNRAS}, 516, 4146.
+
+\bibitem[Pasechnik et al.(2023)]{Pasechnik2023}
+Pasechnik, A., Myll\"ari, A., Valtonen, M., \& Mikkola, S.\ 2023,
+\textit{MNRAS}, 525, 1929.
+
+\bibitem[Bruenech et al.(2024)]{Bruenech2024}
+Bruenech, C.~W., Boekholt, T., Toonen, S., et al.\ 2024,
+\textit{arXiv e-prints}, arXiv:2408.11128.
+
+\bibitem[Lalande \& Trani(2022)]{LalandeTrani2022}
+Lalande, F., \& Trani, A.~A.\ 2022,
+\textit{ApJ}, 938, 18.
+
+\bibitem[Tory et al.(2022)]{Tory2022}
+Tory, M., Grishin, E., \& Mandel, I.\ 2022,
+\textit{Publications of the Astronomical Society of Australia}, 39, e062.
+
+\bibitem[Hayashi et al.(2022)]{Hayashi2022}
+Hayashi, T., Trani, A.~A., \& Suto, Y.\ 2022,
+\textit{ApJ}, 939, 81.
+
+\bibitem[Hayashi et al.(2023)]{Hayashi2023}
+Hayashi, T., Trani, A.~A., \& Suto, Y.\ 2023,
+\textit{ApJ}, 943, 58.
+
+\end{thebibliography}
+
+\end{document}
